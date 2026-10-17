@@ -1012,7 +1012,7 @@ class Interp {
 	}
 
 	function cnew(cl: String, args: Array<Dynamic>): Dynamic {
-		var c = Type.resolveClass(cl);
+		var c = Tools.resolveClassCached(cl, false);
 		if (c == null)
 			c = resolve(cl);
 		return Type.createInstance(c, args);

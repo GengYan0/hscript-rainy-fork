@@ -45,6 +45,15 @@ class Iris {
 	// calls script functions every frame, so this is steady-state GC pressure removed.
 	@:unreflective public static var EMPTY_ARGS: Array<Dynamic> = [];
 
+	typedef ParseCacheEntry = {
+		expr: Expr,
+		packageName: String
+	}
+
+	static var astCache: StringMap<ParseCacheEntry> = new StringMap();
+	static var astCacheOrder: Array<String> = [];
+	static inline var AST_CACHE_MAX: Int = 256;
+
 	public static var registeredUsingEntries: Array<UsingEntry> = [
 		new UsingEntry("StringTools", function(o: Dynamic, f: String, args: Array<Dynamic>): Dynamic {
 			if (f == "isEof") // has @:noUsing
@@ -285,10 +294,45 @@ class Iris {
 	**/
 	public function parse(force: Bool = false) {
 		if (force || expr == null) {
-			expr = parser.parseString(scriptCode, this.name);
+			var key:String = astCacheKey();
+			var entry:ParseCacheEntry = astCache.get(key);
+			if (entry != null) {
+				expr = entry.expr;
+				parser.packageName = entry.packageName;
+			} else {
+				expr = parser.parseString(scriptCode, this.name);
+				astCacheSet(key, {expr: expr, packageName: parser.packageName});
+			}
 		}
 		return expr;
 	}
+
+	function astCacheKey():String
+		return config.name + "\n" + scriptCode;
+
+	function astCacheSet(key:String, entry:ParseCacheEntry):Void
+	{
+		if (astCache.exists(key)) {
+			astCache.set(key, entry);
+			return;
+		}
+		if (astCacheOrder.length >= AST_CACHE_MAX)
+		{
+			var oldest:String = astCacheOrder.shift();
+			if (oldest != null && oldest != key) astCache.remove(oldest);
+		}
+		astCache.set(key, entry);
+		astCacheOrder.push(key);
+	}
+
+	public static function clearASTCache():Void
+	{
+		astCache = new StringMap();
+		astCacheOrder = [];
+	}
+
+	public static function astCacheSize():Int
+		return astCacheOrder.length;
 
 	/**
 	 * Appends Default Classes/Enums for the Script to use.

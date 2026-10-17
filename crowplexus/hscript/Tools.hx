@@ -23,6 +23,7 @@
 package crowplexus.hscript;
 
 import crowplexus.hscript.Expr;
+import haxe.ds.StringMap;
 
 class Tools {
 	public static function iter(e: Expr, f: Expr->Void) {
@@ -171,11 +172,29 @@ class Tools {
 		return name.substr(ll + 1);
 	}
 
-	public static function getClass(name: String): Dynamic {
+	static var classCache: StringMap<Dynamic> = new StringMap();
+
+	public static function resolveClassCached(name: String, allowEnum: Bool = true): Dynamic {
+		if (name == null)
+			return null;
+		var cached: Dynamic = classCache.get(name);
+		if (cached != null)
+			return cached;
 		var c: Dynamic = Type.resolveClass(name);
-		if (c == null) // try importing as enum
+		if (c == null && allowEnum)
 			try
 				c = Type.resolveEnum(name);
+		if (c != null)
+			classCache.set(name, c);
+		return c;
+	}
+
+	public static function clearClassCache(): Void {
+		classCache = new StringMap();
+	}
+
+	public static function getClass(name: String): Dynamic {
+		var c: Dynamic = resolveClassCached(name);
 
 		if (c == null) {
 			// lastly try removing any inner class from it
