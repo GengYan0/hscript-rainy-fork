@@ -34,6 +34,11 @@ class IrisCall {
  *
  * It is highly recommended that you override this class to add custom defualt variables and such.
 **/
+typedef ParseCacheEntry = {
+	expr: Expr,
+	packageName: String
+}
+
 class Iris {
 	/**
 	 * Map with stored instances of scripts.
@@ -44,11 +49,6 @@ class Iris {
 	// instead of `args = []` avoids one array allocation per null-args call — the engine
 	// calls script functions every frame, so this is steady-state GC pressure removed.
 	@:unreflective public static var EMPTY_ARGS: Array<Dynamic> = [];
-
-	typedef ParseCacheEntry = {
-		expr: Expr,
-		packageName: String
-	}
 
 	static var astCache: StringMap<ParseCacheEntry> = new StringMap();
 	static var astCacheOrder: Array<String> = [];
