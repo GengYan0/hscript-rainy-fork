@@ -64,6 +64,28 @@ class Interp {
 	var binops: Hash<Expr->Expr->Dynamic>;
 	#end
 
+	// Rainy perf: O(1) membership test for parent-instance fields, replacing the
+	// per-resolve Array.contains scan in subclasses (CustomInterp.resolve reads
+	// bare identifiers like `health`/`songPos` against parentInstance every frame).
+	#if haxe3
+	public var parentFieldSet: Map<String, Bool> = null;
+	#else
+	public var parentFieldSet: Hash<Bool> = null;
+	#end
+
+	// Precompute the parent-instance field set from the instance's field list.
+	// Subclasses call this once when binding parentInstance (e.g. set_parentInstance),
+	// so resolve() does Map.exists (O(1)) instead of Array.contains (O(n) per id).
+	public function buildParentFieldSet(fields: Array<String>): Void {
+		#if haxe3
+		parentFieldSet = new Map<String, Bool>();
+		#else
+		parentFieldSet = new Hash<Bool>();
+		#end
+		for (f in fields)
+			parentFieldSet.set(f, true);
+	}
+
 	var depth: Int;
 	var inTry: Bool;
 	var declared: Array<DeclaredVar>;
