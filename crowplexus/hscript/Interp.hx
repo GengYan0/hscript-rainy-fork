@@ -276,6 +276,11 @@ class Interp {
 			case EIdent(id):
 				var l = locals.get(id);
 				var v: Dynamic = (l == null) ? resolve(id) : l.r;
+				// Both branches have to reach setTo. A local lives in `locals`, a bare name
+				// lives in `variables`, and only the distinction between those two was
+				// supposed to matter here - reading it as "only touch globals" is what made
+				// `i++` a no-op on every `var`-declared counter, which froze any script that
+				// counted its way through a while loop.
 				function setTo(a) {
 					if (l == null)
 						setVar(id, a)
@@ -286,13 +291,11 @@ class Interp {
 							error(ECustom("Cannot reassign final, for constant expression -> " + id));
 					}
 				}
-				if (l == null) {
-					if (prefix) {
-						v += delta;
-						setTo(v);
-					} else
-						setTo(v + delta);
-				}
+				if (prefix) {
+					v += delta;
+					setTo(v);
+				} else
+					setTo(v + delta);
 				return v;
 			case EField(e, f, s):
 				var obj = expr(e);
@@ -378,6 +381,17 @@ class Interp {
 		while (declared.length > old) {
 			var d = declared.pop();
 			locals.set(d.n, d.old);
+		}
+	}
+
+	function patternMatches(pattern: Expr, val: Dynamic): Bool {
+		switch (Tools.expr(pattern)) {
+			case EIdent("_"):
+				return true;
+			case EBinop("|", left, right):
+				return patternMatches(left, val) || patternMatches(right, val);
+			default:
+				return expr(pattern) == val;
 		}
 	}
 
@@ -577,7 +591,9 @@ class Interp {
 									args2.push(args[pos++]);
 									extraParams--;
 								} else
-									args2.push(null);
+									// A default was parsed for this parameter but never used, so
+									// `function f(a = 5)` handed the body a null instead of five.
+									args2.push(p.value == null ? null : me.expr(p.value));
 							} else
 								args2.push(args[pos++]);
 						args = args2;
@@ -717,15 +733,37 @@ class Interp {
 				var val: Dynamic = expr(e);
 				var match = false;
 				for (c in cases) {
-					for (v in c.values)
-						if ((!Type.enumEq(Tools.expr(v), EIdent("_")) && expr(v) == val) && (c.ifExpr == null || expr(c.ifExpr) == true)) {
-							match = true;
-							break;
+					var bindName: String = null;
+					var hit = false;
+					for (v in c.values) {
+						switch (Tools.expr(v)) {
+							case EIdent(id) if (c.ifExpr != null && id != "_"):
+								// `case x if (x > 3)` binds the subject to x. Only when a guard is
+								// present, because an unguarded identifier has always meant "compare
+								// against whatever this name holds" and scripts rely on that.
+								bindName = id;
+								hit = true;
+							default:
+								if (patternMatches(v, val))
+									hit = true;
 						}
-					if (match) {
+						if (hit)
+							break;
+					}
+					if (!hit)
+						continue;
+					var oldDecl = declared.length;
+					if (bindName != null) {
+						declared.push({n: bindName, old: locals.get(bindName)});
+						locals.set(bindName, {r: val, const: true});
+					}
+					if (c.ifExpr == null || expr(c.ifExpr) == true) {
+						match = true;
 						val = expr(c.expr);
+						restore(oldDecl);
 						break;
 					}
+					restore(oldDecl);
 				}
 				if (!match)
 					val = def == null ? null : expr(def);
@@ -837,7 +875,12 @@ class Interp {
 		return v;
 	}
 
-	function forLoop(n, it, e) {
+	function forLoop(n: String, it: Expr, e: Expr) {
+		var sep = n.indexOf("=>");
+		if (sep > 0) {
+			forLoopKeyValue(n.substr(0, sep), n.substr(sep + 2), it, e);
+			return;
+		}
 		var old = declared.length;
 		declared.push({n: n, old: locals.get(n)});
 		var it = makeIterator(expr(it));
@@ -862,6 +905,46 @@ class Interp {
 
 	inline function isMap(o: Dynamic): Bool {
 		return (o is IMap);
+	}
+
+	function forLoopKeyValue(kName: String, vName: String, it: Expr, e: Expr) {
+		var old = declared.length;
+		declared.push({n: kName, old: locals.get(kName)});
+		declared.push({n: vName, old: locals.get(vName)});
+
+		var coll: Dynamic = expr(it);
+		var keys: Array<Dynamic> = [];
+		var values: Array<Dynamic> = [];
+		if (isMap(coll)) {
+			var m: IMap<Dynamic, Dynamic> = cast coll;
+			for (k in m.keys()) {
+				keys.push(k);
+				values.push(m.get(k));
+			}
+		} else if (coll != null && Reflect.isObject(coll)) {
+			for (f in Reflect.fields(coll)) {
+				keys.push(f);
+				values.push(Reflect.field(coll, f));
+			}
+		} else
+			error(EInvalidIterator(coll));
+
+		for (i in 0...keys.length) {
+			locals.set(kName, {r: keys[i], const: false});
+			locals.set(vName, {r: values[i], const: false});
+			try {
+				expr(e);
+			} catch (err:Stop) {
+				switch (err) {
+					case SContinue:
+					case SBreak:
+						break;
+					case SReturn:
+						throw err;
+				}
+			}
+		}
+		restore(old);
 	}
 
 	inline function getMapValue(map: Dynamic, key: Dynamic): Dynamic {

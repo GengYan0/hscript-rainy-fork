@@ -27,6 +27,11 @@ import crowplexus.hscript.Tools;
 
 using StringTools;
 
+typedef InterpSegment = {
+	var lit: String;
+	var ?code: String;
+}
+
 enum Token {
 	TEof;
 	TConst(c: Const);
@@ -108,6 +113,8 @@ class Parser {
 	// implementation
 	var input: String;
 	var readPos: Int;
+
+	var interpSegments: Array<InterpSegment> = null;
 
 	var char: Int;
 	var ops: Array<Bool>;
@@ -406,6 +413,30 @@ class Parser {
 		return parseExprNext(mk(EObject(fl), p1));
 	}
 
+	function buildInterp(segs: Array<InterpSegment>): Expr {
+		var acc: Expr = mk(EConst(CString(segs[0].lit)));
+		for (i in 0...segs.length) {
+			if (i > 0) {
+				var lit = segs[i].lit;
+				if (lit.length > 0)
+					acc = mk(EBinop("+", acc, mk(EConst(CString(lit)))));
+			}
+			var code = segs[i].code;
+			if (code != null && code.length > 0)
+				acc = mk(EBinop("+", acc, parseFragment(code)));
+		}
+		return acc;
+	}
+
+	function parseFragment(src: String): Expr {
+		var sub = new Parser();
+		sub.allowTypes = allowTypes;
+		sub.allowJSON = allowJSON;
+		sub.resumeErrors = resumeErrors;
+		sub.line = line;
+		return sub.parseString(src, "interpolation");
+	}
+
 	function parseExpr() {
 		var tk = token();
 		#if hscriptPos
@@ -418,6 +449,15 @@ class Parser {
 					e = mk(EIdent(id));
 				return parseExprNext(e);
 			case TConst(c):
+				var segs = interpSegments;
+				if (segs != null) {
+					interpSegments = null;
+					switch (c) {
+						case CString(_):
+							return parseExprNext(buildInterp(segs));
+						default:
+					}
+				}
 				return parseExprNext(mk(EConst(c)));
 			case TPOpen:
 				tk = token();
@@ -689,6 +729,11 @@ class Parser {
 			case "for":
 				ensure(TPOpen);
 				var vname = getIdent();
+				// `for (k => v in coll)` carries two names through the single slot EFor has:
+				// `=>` cannot occur inside an identifier, so the pair stays unambiguous and
+				// everything downstream (Printer, Tools, Bytes) keeps working unchanged.
+				if (maybe(TOp("=>")))
+					vname = vname + "=>" + getIdent();
 				ensureToken(TId("in"));
 				var eiter = parseExpr();
 				ensure(TPClose);
@@ -740,13 +785,19 @@ class Parser {
 				ensureToken(TId("catch"));
 				ensure(TPOpen);
 				var vname = getIdent();
-				ensure(TDoubleDot);
 				var t = null;
-				if (allowTypes)
-					t = parseType();
-				else
-					ensureToken(TId("Dynamic"));
-				ensure(TPClose);
+				var ct = token();
+				if (ct != TPClose) {
+					// `catch (e)` with no annotation is valid since Haxe 4.2, and the
+					// interpreter ignores the type anyway, so the colon is optional here too.
+					if (ct != TDoubleDot)
+						unexpected(ct);
+					if (allowTypes)
+						t = parseType();
+					else
+						ensureToken(TId("Dynamic"));
+					ensure(TPClose);
+				}
 				var ec = parseExpr();
 				mk(ETry(e, vname, t, ec), p1, pmax(ec));
 			case "switch":
@@ -1064,8 +1115,12 @@ class Parser {
 				if (allowTypes) {
 					if (maybe(TDoubleDot))
 						arg.t = parseType();
-					if (maybe(TOp("=")))
+					if (maybe(TOp("="))) {
 						arg.value = parseExpr();
+						// Haxe treats a parameter that has a default as callable-without-it,
+						// so the arity check has to see it as optional too.
+						arg.opt = true;
+					}
 				}
 				tk = token();
 				switch (tk) {
@@ -1510,14 +1565,51 @@ class Parser {
 
 	// ------------------------ lexing -------------------------------
 
+	static inline var squote: Int = 39; // '
+	static inline var dollar: Int = 36; // $
+
 	inline function readChar() {
 		return StringTools.fastCodeAt(input, readPos++);
+	}
+
+	function readInterpBlock(): String {
+		var buf = new StringBuf();
+		var depth = 1;
+		var quote = 0;
+		var escape = false;
+		while (true) {
+			var c = readChar();
+			if (StringTools.isEof(c))
+				error(EUnterminatedString, 0, 0);
+			if (c == 10)
+				line++;
+			if (quote != 0) {
+				if (escape)
+					escape = false;
+				else if (c == 92)
+					escape = true;
+				else if (c == quote)
+					quote = 0;
+			} else if (c == squote || c == '"'.code)
+				quote = c;
+			else if (c == '{'.code)
+				depth++;
+			else if (c == '}'.code) {
+				depth--;
+				if (depth == 0)
+					break;
+			}
+			buf.addChar(c);
+		}
+		return buf.toString();
 	}
 
 	function readString(until) {
 		var c = 0;
 		var b = new StringBuf();
 		var esc = false;
+		// Cleared up front so a literal with no `$` leaves nothing behind for the next one.
+		interpSegments = null;
 		var old = line;
 		var s = input;
 		#if hscriptPos
@@ -1574,6 +1666,49 @@ class Parser {
 				}
 			} else if (c == 92)
 				esc = true;
+			else if (c == dollar && until == squote) {
+				// Haxe only interpolates inside single quotes, and only `$name` / `${expr}`.
+				// `$$` is the escape for a literal dollar. The literal built so far is closed
+				// off here and the code is handed to the expression side, which splices the
+				// whole thing back together as `"lit" + expr + "lit"`.
+				var next = readChar();
+				if (next == dollar)
+					b.addChar(dollar);
+				else {
+					var code: String = null;
+					if (next == '{'.code)
+						code = readInterpBlock();
+					else if ((next >= 65 && next <= 90) || (next >= 97 && next <= 122) || next == 95) {
+						// Only a real identifier start begins an interpolation, so a price tag
+						// written as 'cost: $5' stays the literal text it looks like.
+						var id = new StringBuf();
+						id.addChar(next);
+						while (true) {
+							var cc = readChar();
+							if (cc < 0 || cc >= 128 || idents[cc] != true) {
+								readPos--;
+								break;
+							}
+							id.addChar(cc);
+						}
+						code = id.toString();
+					} else {
+						// Not an interpolation at all - keep the dollar and hand back the lookahead.
+						b.addChar(dollar);
+						readPos--;
+					}
+
+					if (code != null) {
+						var segs = interpSegments;
+						if (segs == null) {
+							segs = [];
+							interpSegments = segs;
+						}
+						segs.push({lit: b.toString(), code: code});
+						b = new StringBuf();
+					}
+				}
+			}
 			else if (c == until)
 				break;
 			else {
@@ -1582,7 +1717,11 @@ class Parser {
 				b.addChar(c);
 			}
 		}
-		return b.toString();
+		var tail = b.toString();
+		// The text after the last `$` is a segment too; without it `'$n.b'` lost the `.b`.
+		if (interpSegments != null)
+			interpSegments.push({lit: tail});
+		return tail;
 	}
 
 	function token() {
@@ -1654,7 +1793,12 @@ class Parser {
 								}
 								if (pow == null)
 									invalidChar(char);
-								return TConst(CFloat((Math.pow(10, pow) / exp) * n * 10));
+								// Mirrors the plain-decimal path below: `exp` is 10^(digits after
+								// the point) plus one, and 0 when no point was ever seen, so the
+								// zero case skips the correction rather than dividing by it -
+								// that division is what turned `1e3` into Infinity.
+								var mantissa = (exp > 0) ? n * 10 / exp : n;
+								return TConst(CFloat(Math.pow(10, pow) * mantissa));
 							case ".".code:
 								if (exp > 0) {
 									// in case of '0...'

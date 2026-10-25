@@ -1,0 +1,6 @@
+# Regression check for the script syntax surface.
+# Run from this directory:  haxe test.hxml
+-cp ..
+-cp .
+-main SyntaxProbe
+--interp
