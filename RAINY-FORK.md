@@ -1,12 +1,9 @@
 # RAINY-FORK
 
-What this fork changes, and why. Upstream is
-[`crowplexus/hscript-iris`](https://github.com/crowplexus/hscript-iris); the license and all
-original copyright notices are untouched.
+这个构建改了哪些语法、为什么改。许可与原始版权声明未做任何改动。
 
-This is a working fork, not a rewrite. Every entry below exists because a script written
-against stock `hscript` behaved differently on this engine - either silently, or by
-freezing.
+这是一个可用的构建，不是重写。下面每一条都存在，原因是照标准 `hscript` 写的脚本在这个
+解释器上行为不同——要么静默出错，要么直接卡死。
 
 Regression list: `test/SyntaxProbe.hx`, run with `cd test && haxe test.hxml`.
 Every case is a script snippet plus the value it must produce. The two failures it reports
