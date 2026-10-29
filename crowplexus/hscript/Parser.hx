@@ -729,9 +729,6 @@ class Parser {
 			case "for":
 				ensure(TPOpen);
 				var vname = getIdent();
-				// `for (k => v in coll)` carries two names through the single slot EFor has:
-				// `=>` cannot occur inside an identifier, so the pair stays unambiguous and
-				// everything downstream (Printer, Tools, Bytes) keeps working unchanged.
 				if (maybe(TOp("=>")))
 					vname = vname + "=>" + getIdent();
 				ensureToken(TId("in"));
@@ -788,8 +785,6 @@ class Parser {
 				var t = null;
 				var ct = token();
 				if (ct != TPClose) {
-					// `catch (e)` with no annotation is valid since Haxe 4.2, and the
-					// interpreter ignores the type anyway, so the colon is optional here too.
 					if (ct != TDoubleDot)
 						unexpected(ct);
 					if (allowTypes)
@@ -1117,8 +1112,6 @@ class Parser {
 						arg.t = parseType();
 					if (maybe(TOp("="))) {
 						arg.value = parseExpr();
-						// Haxe treats a parameter that has a default as callable-without-it,
-						// so the arity check has to see it as optional too.
 						arg.opt = true;
 					}
 				}
@@ -1608,7 +1601,6 @@ class Parser {
 		var c = 0;
 		var b = new StringBuf();
 		var esc = false;
-		// Cleared up front so a literal with no `$` leaves nothing behind for the next one.
 		interpSegments = null;
 		var old = line;
 		var s = input;
@@ -1667,10 +1659,6 @@ class Parser {
 			} else if (c == 92)
 				esc = true;
 			else if (c == dollar && until == squote) {
-				// Haxe only interpolates inside single quotes, and only `$name` / `${expr}`.
-				// `$$` is the escape for a literal dollar. The literal built so far is closed
-				// off here and the code is handed to the expression side, which splices the
-				// whole thing back together as `"lit" + expr + "lit"`.
 				var next = readChar();
 				if (next == dollar)
 					b.addChar(dollar);
@@ -1679,8 +1667,6 @@ class Parser {
 					if (next == '{'.code)
 						code = readInterpBlock();
 					else if ((next >= 65 && next <= 90) || (next >= 97 && next <= 122) || next == 95) {
-						// Only a real identifier start begins an interpolation, so a price tag
-						// written as 'cost: $5' stays the literal text it looks like.
 						var id = new StringBuf();
 						id.addChar(next);
 						while (true) {
@@ -1693,7 +1679,6 @@ class Parser {
 						}
 						code = id.toString();
 					} else {
-						// Not an interpolation at all - keep the dollar and hand back the lookahead.
 						b.addChar(dollar);
 						readPos--;
 					}
@@ -1718,7 +1703,6 @@ class Parser {
 			}
 		}
 		var tail = b.toString();
-		// The text after the last `$` is a segment too; without it `'$n.b'` lost the `.b`.
 		if (interpSegments != null)
 			interpSegments.push({lit: tail});
 		return tail;
@@ -1793,10 +1777,6 @@ class Parser {
 								}
 								if (pow == null)
 									invalidChar(char);
-								// Mirrors the plain-decimal path below: `exp` is 10^(digits after
-								// the point) plus one, and 0 when no point was ever seen, so the
-								// zero case skips the correction rather than dividing by it -
-								// that division is what turned `1e3` into Infinity.
 								var mantissa = (exp > 0) ? n * 10 / exp : n;
 								return TConst(CFloat(Math.pow(10, pow) * mantissa));
 							case ".".code:

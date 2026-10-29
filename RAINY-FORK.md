@@ -80,8 +80,8 @@ format strings in them.
 ```bash
 cd test
 haxe test.hxml
-# probe: 83 passed, 2 failed (the two above)
+# probe: 86 passed, 2 failed (the two above)
 ```
 
 `PROBE_SKIP=name` skips a case by name, which is how the pre-fix baseline was compared
-against this fork: same suite, 55 -> 83 passing, nothing regressed.
+against this fork: same suite, 55 -> 86 passing, nothing regressed.

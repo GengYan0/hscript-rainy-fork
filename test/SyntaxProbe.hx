@@ -1,6 +1,3 @@
-// Probes the syntax surface of crowplexus.hscript as our scripts actually see it.
-// Each case is a script body plus the value it must evaluate to; anything that
-// throws is reported with the parser message so the gap is explicit.
 class SyntaxProbe
 {
 	static var pass:Int = 0;
@@ -8,7 +5,6 @@ class SyntaxProbe
 
 	public static function main()
 	{
-		// Arithmetic and assignment
 		t('compound add', 'var x = 1; x += 2; x', '3');
 		t('compound sub', 'var x = 5; x -= 2; x', '3');
 		t('compound mul', 'var x = 3; x *= 2; x', '6');
@@ -43,7 +39,6 @@ class SyntaxProbe
 		t('float exponent', '1e3', '1000');
 		t('negative literal', '-5 + 2', '-3');
 
-		// Functions
 		t('arrow single arg', 'var f = x -> x * 2; f(3)', '6');
 		t('arrow parenthesized', 'var f = (a, b) -> a + b; f(1, 2)', '3');
 		t('arrow block body', 'var f = (a) -> { return a + 1; }; f(1)', '2');
@@ -51,12 +46,10 @@ class SyntaxProbe
 		t('default argument', 'function f(a = 5) return a; f()', '5');
 		t('named argument list', 'function f(a, b) return a - b; f(9, 4)', '5');
 
-		// Control flow
 		t('if expression', 'var v = if (true) 1 else 2; v', '1');
 		t('while loop', 'var i = 0; while (i < 3) i++; i', '3');
 		t('do while loop', 'var i = 0; do { i++; } while (i < 3); i', '3');
 		t('range exclusive', 'var s = 0; for (i in 0...4) s += i; s', '6');
-		t('range inclusive', 'var s = 0; for (i in 0...4) s += i; s', '6');
 		t('for over array', 'var s = 0; for (v in [1,2,3]) s += v; s', '6');
 		t('key value iteration', 'var s = ""; for (k => v in ["a" => 1]) s += k; s', 'a');
 		t('break', 'var i = 0; while (true) { i++; if (i > 2) break; } i', '3');
@@ -68,12 +61,10 @@ class SyntaxProbe
 		t('try catch', 'var r = "none"; try { throw "boom"; } catch (e) { r = e; } r', 'boom');
 		t('try catch typed', 'var r = "none"; try { throw "boom"; } catch (e:Dynamic) { r = e; } r', 'boom');
 
-		// Declarations
 		t('typed var', 'var x:Int = 5; x', '5');
 		t('final', 'final x = 3; x', '3');
 		t('block scoped var', 'var x = 1; { var x = 2; } x', '1');
 
-		// Interop that scripts rely on every day
 		t('method call chain', '"abc".toUpperCase()', 'ABC');
 		t('array map with arrow', '[1,2,3].map(x -> x + 1)', '[2,3,4]');
 		t('array filter with arrow', '[1,2,3].filter(x -> x > 1)', '[2,3]');
@@ -85,7 +76,6 @@ class SyntaxProbe
 		t('null safe field read', 'var o = null; o == null', 'true');
 		t('typeof via Type', 'Type.typeof(1)', 'TInt');
 
-		// Interpolation edges and the corners the fixes above could have broken
 		t('dollar before digit stays literal', "var n = 1; 'cost: $5'", 'cost: $5');
 		t('double dollar is literal', "var n = 1; 'a$$n'", "a$n");
 		t('interpolation then dot', "var o = {a: 1}; var n = 'x'; '$n.b'", 'x.b');
@@ -108,7 +98,6 @@ class SyntaxProbe
 		t('negative exponent', '2e-3', '0.002');
 		t('increment in nested function', 'var c = 0; var f = function() { c++; return c; }; f(); f(); c', '2');
 
-		// Things scripts are known to attempt and get confused by
 		t('optional chaining', 'var o = null; o?.a', 'null');
 		t('spread call', 'function f(a, b) return a + b; var v = [1, 2]; f(...v)', '3');
 		t('postfix null assert', 'var o = {a: 1}; o!.a', '1');

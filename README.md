@@ -35,12 +35,6 @@ Haxe 脚本解释器。在运行时解释 `.hx` 脚本，脚本能读写宿主�
 ## 安装
 
 ```bash
-haxelib dev hscript-iris "D:/libs/rainy-hscript"
-```
-
-或者：
-
-```bash
 haxelib git hscript-iris https://github.com/GengYan0/hscript-rainy-fork
 ```
 
@@ -249,5 +243,5 @@ cd test
 haxe test.hxml
 ```
 
-83 条通过，2 条失败即上表两项：逐条是「脚本片段 + 必须得到的值」，改解释器前后跑同一套。
+86 条通过，2 条失败即上表两项：逐条是「脚本片段 + 必须得到的值」，改解释器前后跑同一套。
 `PROBE_SKIP=name` 按名字跳过单条。

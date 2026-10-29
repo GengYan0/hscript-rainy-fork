@@ -64,18 +64,12 @@ class Interp {
 	var binops: Hash<Expr->Expr->Dynamic>;
 	#end
 
-	// Rainy perf: O(1) membership test for parent-instance fields, replacing the
-	// per-resolve Array.contains scan in subclasses (CustomInterp.resolve reads
-	// bare identifiers like `health`/`songPos` against parentInstance every frame).
 	#if haxe3
 	public var parentFieldSet: Map<String, Bool> = null;
 	#else
 	public var parentFieldSet: Hash<Bool> = null;
 	#end
 
-	// Precompute the parent-instance field set from the instance's field list.
-	// Subclasses call this once when binding parentInstance (e.g. set_parentInstance),
-	// so resolve() does Map.exists (O(1)) instead of Array.contains (O(n) per id).
 	public function buildParentFieldSet(fields: Array<String>): Void {
 		#if haxe3
 		parentFieldSet = new Map<String, Bool>();
@@ -276,11 +270,6 @@ class Interp {
 			case EIdent(id):
 				var l = locals.get(id);
 				var v: Dynamic = (l == null) ? resolve(id) : l.r;
-				// Both branches have to reach setTo. A local lives in `locals`, a bare name
-				// lives in `variables`, and only the distinction between those two was
-				// supposed to matter here - reading it as "only touch globals" is what made
-				// `i++` a no-op on every `var`-declared counter, which froze any script that
-				// counted its way through a while loop.
 				function setTo(a) {
 					if (l == null)
 						setVar(id, a)
@@ -591,8 +580,6 @@ class Interp {
 									args2.push(args[pos++]);
 									extraParams--;
 								} else
-									// A default was parsed for this parameter but never used, so
-									// `function f(a = 5)` handed the body a null instead of five.
 									args2.push(p.value == null ? null : me.expr(p.value));
 							} else
 								args2.push(args[pos++]);
@@ -738,9 +725,6 @@ class Interp {
 					for (v in c.values) {
 						switch (Tools.expr(v)) {
 							case EIdent(id) if (c.ifExpr != null && id != "_"):
-								// `case x if (x > 3)` binds the subject to x. Only when a guard is
-								// present, because an unguarded identifier has always meant "compare
-								// against whatever this name holds" and scripts rely on that.
 								bindName = id;
 								hit = true;
 							default:
@@ -896,6 +880,7 @@ class Interp {
 					case SBreak:
 						break;
 					case SReturn:
+						restore(old);
 						throw err;
 				}
 			}
@@ -940,6 +925,7 @@ class Interp {
 					case SBreak:
 						break;
 					case SReturn:
+						restore(old);
 						throw err;
 				}
 			}
